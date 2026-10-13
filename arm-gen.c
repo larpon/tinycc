@@ -1057,6 +1057,7 @@ struct plan {
     struct param_plan *pplans; /* array of all the param plans */
     struct param_plan *clsplans[NB_CLASSES]; /* per class lists of param plans */
     int nb_plans;
+    int split_end; /* stack end of a structure split between core registers and the stack */
 };
 
 static void add_param_plan(struct plan* plan, int cls, int start, int end, SValue *v)
@@ -1132,7 +1133,7 @@ static int assign_regs(int nb_args, int float_abi, struct plan *plan, int *todo)
         add_param_plan(plan, CORE_STRUCT_CLASS, ncrn, j, &vtop[-i]);
         ncrn += size/4;
         if (ncrn > 4)
-          nsaa = (ncrn - 4) * 4;
+          plan->split_end = nsaa = (ncrn - 4) * 4;
       } else {
         ncrn = 4;
         break;
@@ -1207,8 +1208,9 @@ again:
             size = type_size(&pplan->sval->type, &align);
             /* align to stack align size */
             size = (size + 3) & ~3;
-            if (i == STACK_CLASS && pplan->prev)
-              padding = pplan->start - pplan->prev->end;
+            /* the lowest stacked parameter follows the stack part of a split structure, if any */
+            if (i == STACK_CLASS)
+              padding = pplan->start - (pplan->prev ? pplan->prev->end : plan->split_end);
             size += padding; /* Add padding if any */
             /* allocate the necessary size on stack */
             gadd_sp(-size);
@@ -1273,8 +1275,8 @@ again:
               r = gv(RC_INT);
               o(0xE52D0004|(intr(r)<<12)); /* push r */
             }
-            if (i == STACK_CLASS && pplan->prev)
-              gadd_sp(pplan->prev->end - pplan->start); /* Add padding if any */
+            if (i == STACK_CLASS) /* Add padding if any */
+              gadd_sp((pplan->prev ? pplan->prev->end : plan->split_end) - pplan->start);
           }
           break;
 
